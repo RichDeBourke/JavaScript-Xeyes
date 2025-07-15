@@ -1,89 +1,178 @@
 /*!
- * javascript.xeyes.js
- * jquery.xeyes-2.0.js Copyright 2014-2017 Felix Milea-Ciobanu
- * javascript.xeyes.js Copyright 2023 Rich DeBourke / SBF Consulting
- *
- * Licensed under MIT (https://github.com/RichDeBourke/JavaScript-Xeyes/blob/master/LICENSE)
- */
+* javascript.xeyes.js
+* jquery.xeyes-2.0.js Copyright 2014-2017 Felix Milea-Ciobanu
+* javascript.xeyes.js Copyright 2023-2025 Rich DeBourke / SBF Consulting
+*
+* Licensed under MIT (https://github.com/RichDeBourke/JavaScript-Xeyes/blob/master/LICENSE)
+*/
 
 (function() {
     "use strict";
 
-    const Xeyes = function(irises, padding = 0) {
-        this.init(irises, padding);
+    const Xeyes = function(irises, padding, lastMouse) {
+        this.init(irises, padding, lastMouse);
     };
 
     function Iris(irisEl) {
         this.iris = irisEl;
-
         this.width = this.iris.offsetWidth;
         this.height = this.iris.offsetHeight;
+        this.offset = null;
 
         this.resetOffset = function() {
-            let offset = this.iris.getBoundingClientRect();
+            const rect = this.iris.getBoundingClientRect();
             this.offset = {
-                x: offset.left + window.scrollX,
-                y: offset.top + window.scrollY
+                x: rect.left + window.scrollX,
+                y: rect.top + window.scrollY
             };
         };
     }
 
     function Eye(irisEl) {
         this.eye = irisEl.parentElement;
-
         this.width = this.eye.clientWidth;
         this.height = this.eye.clientHeight;
-
         this.iris = new Iris(irisEl);
+        this.padding = 0;
 
-        this.pos = {
+        // Calculate center position
+        this.centerPos = {
             x: (this.width - this.iris.width) / 2,
             y: (this.height - this.iris.height) / 2
         };
 
-        irisEl.style.setProperty("left", this.pos.x + "px");
-        irisEl.style.setProperty("top", this.pos.y + "px");
+        // Set initial position
+        this.setIrisPosition(this.centerPos.x, this.centerPos.y);
+
+        // Cache eye offset for better performance
+        this.updateEyeOffset();
     }
 
-    Eye.prototype.follow = function(mouse) {
-        mouse.x = mouse.x - this.pos.x;
-        mouse.y = mouse.y - this.pos.y;
-
-        this.iris.resetOffset();
-
-        const degree = Math.atan((mouse.y - this.iris.offset.y) / (mouse.x - this.iris.offset.x));
-        const direction = (this.iris.offset.x > mouse.x) ? -1 : 1;
-        const newX = Math.cos(degree) * ((this.width - this.iris.width) / 2 - this.padding) * direction;
-        const newY = Math.sin(degree) * ((this.height - this.iris.height) / 2 - this.padding) * direction;
-        const radius = Math.sqrt(Math.pow(newX, 2) + Math.pow(newY, 2));
-        const distance = Math.sqrt(Math.pow(mouse.y - this.iris.offset.y, 2) + Math.pow(mouse.x - this.iris.offset.x, 2));
-
-        if (radius > distance) {
-            this.iris.iris.style.setProperty("left", (mouse.x - this.iris.offset.x + this.pos.x) + "px");
-            this.iris.iris.style.setProperty("top", (mouse.y - this.iris.offset.y + this.pos.y) + "px");
-        } else {
-            this.iris.iris.style.setProperty("left", this.pos.x + newX + "px");
-            this.iris.iris.style.setProperty("top", this.pos.y + newY + "px");
-        }
+    Eye.prototype.updateEyeOffset = function() {
+        const rect = this.eye.getBoundingClientRect();
+        this.eyeOffset = {
+            x: rect.left + window.scrollX,
+            y: rect.top + window.scrollY
+        };
     };
 
-    Xeyes.prototype.init = function(irises, padding) {
+    Eye.prototype.setIrisPosition = function(x, y) {
+        this.iris.iris.style.left = x + "px";
+        this.iris.iris.style.top = y + "px";
+    };
 
+    Eye.prototype.follow = function(mouseX, mouseY) {
+        // Calculate relative mouse position to eye center
+        const eyeCenterX = this.eyeOffset.x + this.width / 2;
+        const eyeCenterY = this.eyeOffset.y + this.height / 2;
+
+        const deltaX = mouseX - eyeCenterX;
+        const deltaY = mouseY - eyeCenterY;
+
+        // Early return if mouse is at center
+        if (deltaX === 0 && deltaY === 0) {
+            this.setIrisPosition(this.centerPos.x, this.centerPos.y);
+            return;
+        }
+
+        // Calculate angle and maximum radius
+        const angle = Math.atan2(deltaY, deltaX);
+        const maxRadius = (Math.min(this.width, this.height) - Math.max(this.iris.width, this.iris.height)) / 2 - this.padding;
+
+        // Calculate distance from center
+        const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+        // Constrain to maximum radius
+        const constrainedDistance = Math.min(distance, maxRadius);
+
+        // Calculate new position
+        const newX = this.centerPos.x + Math.cos(angle) * constrainedDistance;
+        const newY = this.centerPos.y + Math.sin(angle) * constrainedDistance;
+
+        this.setIrisPosition(newX, newY);
+    };
+
+    Xeyes.prototype.init = function(irises, padding, lastMouse) {
+        const eyes = [];
+        let mousePos = {
+            x: 0,
+            y: 0
+        };
+        let animationFrame = null;
+        let isScrolling = false;
+        let scrollTimeout;
+
+        // Create eye instances
         for (const irisEl of irises) {
             const eye = new Eye(irisEl);
-            eye.padding = padding;
-
-            eye.iris.iris.style.setProperty("left", eye.pos.x + "px");
-            eye.iris.iris.style.setProperty("top", eye.pos.y + "px");
-
-            window.addEventListener("mousemove", function(event) {
-                eye.follow({
-                    x: event.pageX,
-                    y: event.pageY
-                });
-            });
+            eye.padding = padding || 0;
+            eyes.push(eye);
         }
 
+        // Update function with requestAnimationFrame
+        function updateEyes() {
+            eyes.forEach(eye => eye.follow(mousePos.x, mousePos.y));
+            animationFrame = null;
+        }
+
+        // Throttled scroll handler
+        function handleScroll() {
+            isScrolling = true;
+
+            clearTimeout(scrollTimeout);
+            scrollTimeout = setTimeout(() => {
+                // Update eye offsets after scrolling stops
+                eyes.forEach(eye => eye.updateEyeOffset());
+                isScrolling = false;
+
+                // Trigger an update if we have a mouse position
+                if (mousePos.x !== 0 || mousePos.y !== 0) {
+                    if (!animationFrame) {
+                        animationFrame = requestAnimationFrame(updateEyes);
+                    }
+                }
+            }, 100);
+        }
+
+        // Single mousemove listener
+        function handleMouseMove(event) {
+            mousePos.x = event.pageX;
+            mousePos.y = event.pageY;
+
+            // Skip updates while scrolling for better performance
+            if (isScrolling) return;
+
+            if (!animationFrame) {
+                animationFrame = requestAnimationFrame(updateEyes);
+            }
+        }
+
+        // Add event listeners
+        window.addEventListener("mousemove", handleMouseMove, {
+            passive: true
+        });
+        window.addEventListener("scroll", handleScroll, {
+            passive: true
+        });
+
+        // Handle initial position if provided
+        if (lastMouse && typeof lastMouse.x === 'number' && typeof lastMouse.y === 'number') {
+            mousePos = {
+                ...lastMouse
+            };
+            updateEyes();
+        }
+
+        // Store cleanup function
+        this.cleanup = function() {
+            window.removeEventListener("mousemove", handleMouseMove);
+            window.removeEventListener("scroll", handleScroll);
+            if (animationFrame) {
+                cancelAnimationFrame(animationFrame);
+            }
+            clearTimeout(scrollTimeout);
+        };
     };
+
     window.Xeyes = Xeyes;
 }());

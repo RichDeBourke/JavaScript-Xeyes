@@ -58,8 +58,12 @@ const irises = document.querySelectorAll(".iris");
 const xeyes = new Xeyes(irises);
 ```
 
-The plugin will use the immidiate parents as the `eyeball` elements. 
+The plugin will use the immediate parents as the `eyeball` elements. 
 
 ## Configuration
 
 While the [original jQuery xeyes](https://github.com/felixmc/jQuery-xeyes/blob/master/jquery.xeyes-2.0.js) plugin had options for padding, iris starting position, reset, trigger window, and radius, I only included the option for padding.
+
+## Updates
+
+**2025/07/15** Enhanced the JavaScript based on a AI review.
